@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>アメリカンルーレット</title>
+<style>
+:root{
+  --felt:#0d3b2a; --felt2:#082a1d; --gold:#e3b95a; --ink:#f6ecd2; --red:#b3162a; --blk:#141414; --grn:#0f7a45;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{
+  background:radial-gradient(ellipse at 50% 30%,var(--felt) 0%,var(--felt2) 75%) var(--felt2);
+  color:var(--ink); font-family:"Noto Serif JP","Hiragino Mincho ProN","Yu Mincho",serif;
+  display:flex; flex-direction:column; align-items:center; gap:18px; padding:20px 16px 32px;
+}
+h1{margin:0;font-size:clamp(18px,4vw,26px);font-weight:700;letter-spacing:.2em;color:var(--gold)}
+.stage{position:relative;width:min(92vw,520px);aspect-ratio:1}
+canvas{width:100%;height:100%;display:block}
+#result{
+  position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  pointer-events:none; opacity:0; transform:scale(.6); transition:opacity .35s, transform .5s cubic-bezier(.2,1.5,.4,1);
+}
+#result.show{opacity:1; transform:scale(1)}
+.badge{
+  width:46%; aspect-ratio:1; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:clamp(56px,16vw,104px); font-weight:900; color:#fff; border:5px solid var(--gold);
+  box-shadow:0 0 0 6px rgba(0,0,0,.45), 0 0 60px 12px rgba(227,185,90,.55), 0 14px 30px rgba(0,0,0,.6);
+}
+.badge.red{background:var(--red)} .badge.black{background:var(--blk)} .badge.green{background:var(--grn)}
+.label{
+  margin-top:12px; padding:6px 18px; border-radius:99px; background:rgba(0,0,0,.7); color:var(--gold);
+  font-size:clamp(14px,3.6vw,20px); letter-spacing:.12em;
+}
+button{
+  font:inherit; font-weight:700; font-size:18px; letter-spacing:.2em; padding:14px 44px; border-radius:99px;
+  color:#2a1a00; background:linear-gradient(#f3d27f,#c99a35); border:2px solid #fff2c4; cursor:pointer;
+  box-shadow:0 6px 0 #7d5c14, 0 12px 20px rgba(0,0,0,.5); transition:transform .1s, box-shadow .1s;
+}
+button:active:not(:disabled){transform:translateY(4px); box-shadow:0 2px 0 #7d5c14, 0 6px 12px rgba(0,0,0,.5)}
+button:disabled{filter:grayscale(.7) brightness(.7); cursor:default}
+button:focus-visible{outline:3px solid #fff; outline-offset:4px}
+.hist{display:flex; gap:8px; flex-wrap:wrap; justify-content:center; min-height:38px; max-width:520px}
+.hist span{
+  width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-weight:700; font-size:14px; color:#fff; border:2px solid rgba(227,185,90,.7);
+}
+.hist .red{background:var(--red)} .hist .black{background:var(--blk)} .hist .green{background:var(--grn)}
+</style>
+</head>
+<body>
+<h1>AMERICAN ROULETTE</h1>
+<div class="stage">
+  <canvas id="c"></canvas>
+  <div id="result" aria-live="polite">
+    <div class="badge" id="num"></div>
+    <div class="label" id="lbl"></div>
+  </div>
+</div>
+<button id="spin">スピン</button>
+<div class="hist" id="hist"></div>
+
+<script>
+const ORDER=["0","28","9","26","30","11","7","20","32","17","5","22","34","15","3","24","36","13","1","00","27","10","25","29","12","8","19","31","18","6","21","33","16","4","23","35","14","2"];
+const REDS=new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+const colorOf=s=>(s==="0"||s==="00")?"green":(REDS.has(+s)?"red":"black");
+const COL={red:"#b3162a",black:"#141414",green:"#0f7a45"};
+const N=38, STEP=Math.PI*2/N, TAU=Math.PI*2;
+
+const cv=document.getElementById("c"), ctx=cv.getContext("2d");
+let S=520, wheelRot=0, ballA=-Math.PI/2, ballR=0.0, spinning=false, showBall=false;
+
+function resize(){
+  const d=Math.min(window.devicePixelRatio||1,2), w=cv.clientWidth;
+  S=w; cv.width=w*d; cv.height=w*d; ctx.setTransform(d,0,0,d,0,0);
+  if(!spinning) ballR=pocketR(); draw();
+}
+const R=()=>S/2;
+const pocketR=()=>R()*0.68;
+const trackR=()=>R()*0.9;
+
+function draw(){
+  const r=R(); ctx.clearRect(0,0,S,S); ctx.save(); ctx.translate(r,r);
+  // wood bowl
+  let g=ctx.createRadialGradient(0,0,r*.6,0,0,r);
+  g.addColorStop(0,"#5a3417"); g.addColorStop(.7,"#3a210e"); g.addColorStop(1,"#1d1006");
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r*.99,0,TAU); ctx.fill();
+  ctx.strokeStyle="#e3b95a"; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(0,0,r*.98,0,TAU); ctx.stroke();
+  // ball track
+  ctx.strokeStyle="rgba(0,0,0,.45)"; ctx.lineWidth=r*.1; ctx.beginPath(); ctx.arc(0,0,r*.86,0,TAU); ctx.stroke();
+  // rotor
+  ctx.save(); ctx.rotate(wheelRot);
+  const r0=r*.77, r1=r*.6;
+  for(let i=0;i<N;i++){
+    const a0=i*STEP-Math.PI/2, a1=a0+STEP;
+    ctx.beginPath(); ctx.arc(0,0,r0,a0,a1); ctx.arc(0,0,r1,a1,a0,true); ctx.closePath();
+    ctx.fillStyle=COL[colorOf(ORDER[i])]; ctx.fill();
+    ctx.strokeStyle="#e3b95a"; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.save(); ctx.rotate(a0+STEP/2+Math.PI/2); ctx.translate(0,-(r0-r*.035));
+    ctx.fillStyle="#fff"; ctx.font="700 "+(r*.052)+"px Georgia,serif"; ctx.textAlign="center"; ctx.textBaseline="top";
+    ctx.fillText(ORDER[i],0,0); ctx.restore();
+  }
+  // inner cone
+  g=ctx.createRadialGradient(0,0,0,0,0,r1);
+  g.addColorStop(0,"#f3d27f"); g.addColorStop(.5,"#b8862c"); g.addColorStop(1,"#6d4a10");
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r1,0,TAU); ctx.fill();
+  ctx.strokeStyle="#fff2c4"; ctx.lineWidth=2; ctx.stroke();
+  // spokes + hub
+  ctx.strokeStyle="#4b3208"; ctx.lineWidth=r*.025; ctx.lineCap="round";
+  for(let k=0;k<4;k++){ctx.rotate(Math.PI/2); ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-r1*.8); ctx.stroke();}
+  ctx.fillStyle="#fff2c4"; ctx.beginPath(); ctx.arc(0,0,r*.05,0,TAU); ctx.fill();
+  ctx.restore();
+  // ball
+  if(showBall){
+    const bx=Math.cos(ballA)*ballR, by=Math.sin(ballA)*ballR, br=r*.027;
+    ctx.fillStyle="rgba(0,0,0,.4)"; ctx.beginPath(); ctx.arc(bx+2,by+3,br,0,TAU); ctx.fill();
+    g=ctx.createRadialGradient(bx-br*.4,by-br*.4,1,bx,by,br);
+    g.addColorStop(0,"#fff"); g.addColorStop(1,"#b9b9b9");
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(bx,by,br,0,TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+
+const easeOut=(t,p)=>1-Math.pow(1-t,p);
+function spin(){
+  if(spinning) return;
+  spinning=true; showBall=true;
+  const btn=document.getElementById("spin"), res=document.getElementById("result");
+  btn.disabled=true; res.classList.remove("show");
+
+  const win=Math.floor(Math.random()*N);
+  const start=wheelRot, targetMod=(-(win+.5)*STEP)%TAU;
+  let delta=((targetMod-start)%TAU+TAU)%TAU;
+  const wheelTotal=TAU*4+delta;                // wheel turns clockwise
+  const ballTurns=TAU*8;                        // ball turns counter-clockwise
+  const startBall=Math.random()*TAU;
+  const endBall=-Math.PI/2;
+  // make ball end exactly at top
+  const ballDelta=((startBall-endBall)%TAU+TAU)%TAU+ballTurns;
+  const DUR=7200, t0=performance.now();
+
+  (function frame(now){
+    const t=Math.min((now-t0)/DUR,1);
+    wheelRot=start+wheelTotal*easeOut(t,3);
+    ballA=endBall+ballDelta*(1-easeOut(t,2.2));          // angle decreases = counter-clockwise
+    // radius: stays on track, then drops into pocket with a little bounce
+    const drop=Math.min(Math.max((t-.62)/.3,0),1);
+    let rr=trackR()+(pocketR()-trackR())*easeOut(drop,2);
+    if(t>.8&&t<1) rr+=Math.sin((t-.8)*60)*R()*.012*(1-t)*5;
+    ballR=rr;
+    draw();
+    if(t<1) requestAnimationFrame(frame); else finish(win);
+  })(t0);
+}
+
+function finish(i){
+  ballR=pocketR(); ballA=-Math.PI/2; draw();
+  const s=ORDER[i], c=colorOf(s), n=+s;
+  const nm={red:"赤",black:"黒",green:"緑"}[c];
+  let extra=(s==="0"||s==="00")?"":(n%2?" ・ 奇数":" ・ 偶数");
+  const num=document.getElementById("num");
+  num.textContent=s; num.className="badge "+c;
+  document.getElementById("lbl").textContent=nm+extra;
+  document.getElementById("result").classList.add("show");
+  const h=document.getElementById("hist"), el=document.createElement("span");
+  el.className=c; el.textContent=s; h.prepend(el); while(h.children.length>12) h.lastChild.remove();
+  spinning=false; document.getElementById("spin").disabled=false;
+}
+
+document.getElementById("spin").addEventListener("click",spin);
+window.addEventListener("resize",resize);
+resize();
+</script>
+</body>
+</html>
